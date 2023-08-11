@@ -10,166 +10,130 @@
 #include <string.h>
 #include <pthread.h>
 
-
 // Library for Uart
 #include <asm/termbits.h>
 #include "./uart.h"
 
 using namespace std;
 
-// 1st App Implement
-// 2nd Analysis on Linux UART API.
 
-
-void* KeyButton_Rx_Task_Thread(void* );
+void *KeyButton_Rx_Task_Thread(void *);
 void *UART_Tx_Task_Thread(void *argu);
 void *UART_Rx_Task_Thread(void *argu);
 
-
-
-
+UART *pUart;
 
 int main(int argc, char *argv[])
 {
 
+    int BaudRate;
+    pthread_t UART_Rx_Task_Thread_TID;
+    pthread_t KeyButton_Rx_Task_Thread_TID;
 
-     pthread_t UART_Tx_Task_Thread_TID;
-     pthread_t UART_Rx_Task_Thread_TID; 
-     
+    cout << "Input Any BaudRate : ";
+    cin >> BaudRate;
 
-     /*
-     char* p_UART_Tx_Task_Thread_Argument = new char[1024];
-     char* p_UART_Rx_Task_Thread_Argument = new char[1024];
+    pUart = new UART(3, BaudRate);
 
-     void* p_retVal_UART_Tx_Task_Thread;
-     void* p_retVal_UART_Rx_Task_Thread;
-     */ 
-  
+    pUart->Transmit("Hello I'm UART ...!!!\n");
 
+    cout << "pUart : " << (int *)pUart << endl;
+    cout << "pUart->Get_This() : " << (int *)pUart->Get_This() << endl;
 
-     UART* p_Uart = new UART ( 3, 115200 ); 
-
-     p_Uart->Transmit("Hello I'm UART ...!!!\n"); 
-
-
-    /*
-    cout << "Input Argument For Uart Transmit Task : ";
-    cin >> p_UART_Tx_Task_Thread_Argument;
-   
-    cout << "Input Argument For Uart Receive Task : ";
-    cin >> p_UART_Rx_Task_Thread_Argument;
-    */ 
-   
-
-  
-  //  pthread_create(&UART_Tx_Task_Thread_TID, NULL, &UART_Tx_Task_Thread, p_UART_Tx_Task_Thread_Argument);
-  //  pthread_create(&UART_Rx_Task_Thread_TID, NULL, &UART_Rx_Task_Thread, p_UART_Rx_Task_Thread_Argument);
-
-    pthread_create(&UART_Tx_Task_Thread_TID, NULL, &UART_Tx_Task_Thread, NULL);
     pthread_create(&UART_Rx_Task_Thread_TID, NULL, &UART_Rx_Task_Thread, NULL);
+    pthread_create(&KeyButton_Rx_Task_Thread_TID, NULL, &KeyButton_Rx_Task_Thread, NULL);
 
-    pthread_join(UART_Tx_Task_Thread_TID, NULL);
     pthread_join(UART_Rx_Task_Thread_TID, NULL);
-
-
-    
-    // pthread_join(UART_Tx_Task_Thread_TID, &p_retVal_UART_Tx_Task_Thread);
-  //  pthread_join(UART_Rx_Task_Thread_TID, &p_retVal_UART_Rx_Task_Thread);
-
-
-   // delete [] (char*)p_retVal_UART_Tx_Task_Thread;
-   // delete [] (char*)p_retVal_UART_Rx_Task_Thread;
+    pthread_join(KeyButton_Rx_Task_Thread_TID, NULL);
 
     return 0;
 }
 
-
-
-
-
-void* KeyButton_Rx_Task_Thread(void* argu)
+void *KeyButton_Rx_Task_Thread(void *argu)
 {
 
+    cout << "---  KeyButton Receive Task Thread Entry Point ---" << endl;
 
-    cout << "---It's a Entry Point of KeyButton Receive Task Thread---" << endl;
+    int idx = 0;
+    char c;
+    char *Buffer = new char[1024];
+    memset(Buffer, 0x0, sizeof(char) * 1024);
 
-    char Buffer[1024];
-    memset(Buffer,0x0,sizeof(Buffer)); 
+    getchar();
 
-    while(1)
+    while (1)
     {
 
+        c = getchar();
+        Buffer[idx++] = c;
+        if (c == '\b')
+        {
 
-        cout << "\nUnder Infinite Loop of KeyButton_Rx_Task Thread..." << endl;
-        scanf("%s",Buffer); 
-        cout << "Console = " << Buffer << endl; 
-        
+            putchar(' ');
+        }
+        else if (c == '\n')
+        {
 
-       
+            cout << "Console : " << Buffer;
+            pUart->Transmit(Buffer);
 
-        sleep(1); 
+            if (strcmp("quit\n", Buffer) == 0)
+            {
+                cout << "--- Exit Process ---" << endl;
+                memset(Buffer, 0x0, sizeof(Buffer) * 1024);
+                delete pUart;
+                delete[] Buffer;
 
-
-
-
+                exit(1);
+            }
+            memset(Buffer, 0x0, sizeof(Buffer) * 1024);
+            idx = 0;
+        }
     }
 
-
-    return NULL; 
-
-
-    
+    return NULL;
 }
-
-
-
-
-
-void *UART_Tx_Task_Thread(void* argu)
-{
-    
-
-
-   cout << "---It's a Entry Point of Uart Transmit Task Thread---" << endl;
-
-   while(1)
-   {
-
-
-       cout << "\nUnder Infinite Loop of UART_Tx_Task Thread..." << endl;
-       
-       
-        sleep(1);
-
-
-
-   }
-
-
-
-   return argu; 
-
-   
-
-
-}
-
 
 void *UART_Rx_Task_Thread(void *argu)
 {
- 
-    cout << "---It's a Entry Point of Uart Receive Task Thread---" << endl;
-    
-    while(1)
+
+    cout << "---  Uart Receive Task Thread Entry Point ---" << endl;
+    int idx = 0;
+    char *Buffer = new char[1024];
+    char c;
+
+    memset(Buffer, 0x0, 1024);
+
+    while (1)
     {
 
-          
-          cout << "\nUnder Infinite Loop of UART_Rx_Task Thread..." << endl;
-          sleep(1); 
+        c = pUart->Receive();
+        Buffer[idx++] = c;
 
+        if (c == '\b')
+        {
+            putchar(' ');
+        }
+        else if (c == '\n')
+        {
 
+            cout << "From Vim : " << Buffer;
+
+            if (strcmp("quit\n", Buffer) == 0)
+            {
+                cout << "--- Exit Process ---" << endl;
+
+                memset(Buffer, 0x0, sizeof(Buffer) * 1024);
+                delete pUart;
+                delete[] Buffer;
+
+                exit(1);
+            }
+
+            bzero(Buffer, sizeof(Buffer));
+            idx = 0;
+        }
     }
 
-       return argu; 
-
+    return argu;
 }
