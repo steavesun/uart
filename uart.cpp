@@ -289,7 +289,7 @@ void Error_Handle()
 
     char Buffer[1024];
     bzero(Buffer, 1024);
-    sprintf(Buffer, "Error(%d) : %s\n", errno, strerror(errno));
+    sprintf(Buffer, "Error(%d) : %s", errno, strerror(errno));
     printf("%s\n",Buffer); 
    
 }
