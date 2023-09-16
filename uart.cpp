@@ -81,7 +81,8 @@ UART ::UART(char *File, int BaudRate)
         TermOption.c_cflag |= CS8 | CLOCAL | CREAD;
 
         TermOption.c_lflag &= ~(ICANON);
-        TermOption.c_oflag |= IGNPAR;
+
+        TermOption.c_iflag |= IGNPAR | IXANY;
 
         switch (BaudRate)
         {
