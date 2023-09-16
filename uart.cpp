@@ -15,6 +15,7 @@
 #include <pthread.h>
 #include <sys/types.h>
 #include <sys/poll.h>
+#include <signal.h>
 
 #include <termios.h>
 
@@ -25,6 +26,7 @@ using namespace std;
 void *Rx_Msg_Thread(void *);
 void *Rx_Key_Thread(void *);
 void Error_Handle();
+void Signal_Handler(int);
 
 class UART
 {
@@ -32,7 +34,7 @@ class UART
     // Field
 
 private:
-    struct termios Term_Option;
+    struct termios TermOption;
     char File[1024];
     int BaudRate;
     int UartFD;
@@ -59,7 +61,7 @@ UART ::UART(char *File, int BaudRate)
 
     printf("Constructiong Uart Instance\n");
 
-    UartFD = open(File, O_RDWR | O_NOCTTY | O_NDELAY | O_NONBLOCK); // Default Blocking //| O_NDELAY | O_NONBLOCK
+    UartFD = open(File, O_RDWR | O_NOCTTY);
     if (UartFD < 0)
     {
         Error_Handle();
@@ -70,71 +72,26 @@ UART ::UART(char *File, int BaudRate)
 
         printf("Open Uart Device File : [ OK ]\n");
         printf("`-File Descriptor : %d\n", UartFD);
-        memset(&Term_Option, 0x0, sizeof(Term_Option));
 
-        //  Term_Option.c_cflag |= CS8 | CLOCAL | CREAD;
-        /* Char Size : 8 , Ignore Moderm Signal , Read Char : OK */
-        /* Input Mode Flag */
-        // Term_Option.c_iflag |= IGNPAR; /* Ignore Parity Bits*/
-        /* Output Mode Flag */
-        // Term_Option.c_oflag |= 0x0;
-        /* Local Mode Flag */
-        // Term_Option.c_lflag |= 0x0;
+        struct termios Setting;
+        ioctl(STDIN_FILENO, TCGETS, &Setting);
 
-        //  Term_Option.c_cc[VTIME] = 0;
-        //   Term_Option.c_cc[VMIN] = 1;
+        Setting.c_lflag &= ~(ICANON);
 
-        struct termios Origin_Term;
-        tcgetattr(UartFD, &Origin_Term);
-
-        Term_Option = Origin_Term;
-
-        Term_Option.c_cflag |= CS8 | CLOCAL | CREAD & ~CSIZE;
-        Term_Option.c_iflag = 0x1 & ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON | IXOFF | IXANY);
-
-        Term_Option.c_lflag = 0x0;
-        Term_Option.c_oflag = 0x0;
-
-        Term_Option.c_cc[VTIME] = 0;
-        Term_Option.c_cc[VMIN] = 1;
-
-        switch (BaudRate)
-        {
-
-        case 115200:
-            Term_Option.c_cflag |= B115200;
-            printf("BuadRate is Set to B115200\n");
-            break;
-
-        case 57600:
-            Term_Option.c_cflag |= B57600;
-            printf("BuadRate is Set to B57600\n");
-            break;
-
-        case 38400:
-            Term_Option.c_cflag |= B38400;
-            printf("BuadRate is Set to B38400\n");
-            break;
-
-        case 19200:
-            Term_Option.c_cflag |= B19200;
-            printf("BuadRate is Set to B19200\n");
-            break;
-
-        case 9600:
-            Term_Option.c_cflag |= B9600;
-            printf("BuadRate is Set to B9600\n");
-            break;
-
-        default:
-            Term_Option.c_cflag |= B115200;
-            printf("You Enter Wrong BaudRate\n");
-            printf("BuadRate is Set to B115200\n");
-            break;
-        }
+        TermOption.c_cflag |= CS8 | CLOCAL | CREAD;
+        TermOption.c_ispeed = BaudRate;
+        TermOption.c_ospeed = BaudRate;
+        TermOption.c_lflag &= ~(ICANON);
 
         tcflush(UartFD, TCIOFLUSH);
-        tcsetattr(UartFD, TCSANOW, &Term_Option);
+        fflush(stdin);
+        fflush(stdout);
+        ioctl(UartFD, TCSETS, &TermOption);
+        ioctl(STDIN_FILENO, TCSETS, &Setting);
+
+        // Get Terminal Information
+
+        //  ioctl(UartFD,TCGETS,&TermOption);
 
         //  mmap(NULL,getpagesize(), PROT_READ | PROT_WRITE , MAP_SHARED,UartFD,0);
     }
@@ -207,6 +164,7 @@ int main(int argc, char *argv[])
 
     char Device_File[1024];
 
+    signal(SIGINT, Signal_Handler);
     printf("Enter Uart Device File...\n");
     printf("For Example, If The File is /dev/ttyUSB0 Then Enter /dev/ttyUSB0\n");
     printf("For Example, If The File is /dev/tty0 Then Enter /dev/tty0\n");
@@ -222,7 +180,7 @@ int main(int argc, char *argv[])
 
     pUart = new UART(Device_File, BaudRate);
 
-    // pUart->Transmit("Hello I'm UART ...!!!\n");
+    //   pUart->Transmit("Hello I'm UART ...!!!\n");
 
     cout << "pUart : " << (int *)pUart << endl;
     cout << "pUart->Get_This() : " << (int *)pUart->Get_This() << endl;
@@ -247,14 +205,20 @@ int main(int argc, char *argv[])
 
     printf("Exit This Program\n");
     delete pUart;
+    struct termios Setting;
+    ioctl(STDIN_FILENO, TCGETS, &Setting);
+    Setting.c_lflag |= (ICANON);
+    ioctl(STDIN_FILENO, TCSETS, &Setting);
+
     return 0;
 }
 
 void *Rx_Key_Thread(void *argu)
 {
     int UartFD = pUart->Get_UartFD();
-    int idx = 0;
+    int idx = -1;
     char c;
+
     char Buffer[1024];
     bzero(Buffer, 1024);
 
@@ -264,8 +228,10 @@ void *Rx_Key_Thread(void *argu)
     {
 
         c = getchar();
+        write(UartFD, &c, 1);
 
-        Buffer[idx++] = c;
+        idx++;
+        Buffer[idx] = c;
         if (c == '\b')
         {
 
@@ -275,23 +241,25 @@ void *Rx_Key_Thread(void *argu)
         {
 
             printf("Console : %s", Buffer);
-            tcflush(UartFD, TCIFLUSH);
-            write(UartFD, Buffer, sizeof(Buffer));
+            tcflush(UartFD, TCOFLUSH);
 
             if (strcmp(Buffer, "quit\n") == 0)
             {
 
                 printf("You Order Quit\n");
                 if (pthread_cancel(Rx_Msg_Tid) == 0)
-                    printf("Cancel Rx_Msg_Thread Routine : [ OK ]\n");
+                    cout << "Cancel Rx_Msg_Thread Routine : [ OK ]" << endl;
                 else
                     Error_Handle();
 
-                break;
+                if (pthread_cancel(Rx_Key_Tid) == 0)
+                    cout << "Cancel Rx_Key_Thread Routine : [ OK ]" << endl;
+                else
+                    Error_Handle();
             }
 
             bzero(Buffer, 1024);
-            idx = 0;
+            idx = -1;
         }
     }
     printf("End of Rx_Key_Thread Routine\n");
@@ -301,11 +269,12 @@ void *Rx_Msg_Thread(void *argu)
 {
 
     printf("Under Rx_Msg_Thread Routine\n");
-    int idx = -1;
+    int idx = 0;
     char Buffer[1024];
     char c;
     int UartFD = pUart->Get_UartFD();
     bzero(Buffer, 1024);
+    int cnt = 0;
 
     struct pollfd Poll_Event = {
         .fd = UartFD,
@@ -322,37 +291,33 @@ void *Rx_Msg_Thread(void *argu)
         if (Poll_State > 0)
         {
 
-            if (Poll_Event.revents == POLLIN)
+            if (Poll_Event.revents & POLLIN)
             {
 
-                //   printf("Poll_Event.revents = 0x%x\n",Poll_Event.revents);
                 int Status = read(UartFD, &c, 1);
-                // putchar(c);
+                write(STDOUT_FILENO, &c, 1);
+                lseek(STDOUT_FILENO, cnt, SEEK_SET);
+                Buffer[cnt] = c;
+                cnt++;
 
-                if ((Status != 0) && (Status != -1))
+                if (c == '\n')
                 {
-                    idx++;
-                    Buffer[idx] = c;
+                    cout << "Receive : " << Buffer;
 
-                    if (c == '\b')
-                    {
-                        printf("Back Space\n");
-                        Buffer[idx] = ' ';
-                    }
-                    else if (c == '\n')
+                    if (strcmp(Buffer, "quit\n") == 0)
                     {
 
-                        printf("Receive : %s", Buffer);
-                        if (strcmp(Buffer, "quit\n") == 0)
-                        {
-
-                            printf("Quit Message is Ordered\n");
-                            printf("Quit The Program\n");
-                        }
-                        tcflush(UartFD, TCIFLUSH);
-                        bzero(Buffer, sizeof(Buffer));
-                        idx = -1;
+                        if (pthread_cancel(Rx_Key_Tid) == 0)
+                            cout << "Cancel Rx_Key_Thread Routine : [ OK ]" << endl;
+                        else
+                            Error_Handle();
+                        if (pthread_cancel(Rx_Msg_Tid) == 0)
+                            cout << "Cancel Rx_Msg_Thread Routine : [ OK ]" << endl;
+                        else
+                            Error_Handle();
                     }
+                    cnt = 0;
+                    memset(Buffer, 0x0, sizeof(Buffer));
                 }
             }
             else if (Poll_Event.revents & POLLERR)
@@ -369,5 +334,18 @@ void Error_Handle()
     bzero(Buffer, 1024);
     sprintf(Buffer, "Error(%d) : %s", errno, strerror(errno));
     printf("%s\n", Buffer);
+    exit(1);
+}
+
+void Signal_Handler(int val)
+{
+
+    cout << "Signal Value : " << val << endl;
+
+    struct termios Setting;
+    ioctl(STDIN_FILENO, TCGETS, &Setting);
+    Setting.c_lflag |= (ICANON);
+    ioctl(STDIN_FILENO, TCSETS, &Setting);
+
     exit(1);
 }
