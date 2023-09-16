@@ -79,10 +79,49 @@ UART ::UART(char *File, int BaudRate)
         Setting.c_lflag &= ~(ICANON);
 
         TermOption.c_cflag |= CS8 | CLOCAL | CREAD;
-        TermOption.c_ispeed = BaudRate;
-        TermOption.c_ospeed = BaudRate;
-        TermOption.c_lflag &= ~(ICANON);
 
+        TermOption.c_lflag &= ~(ICANON);
+        TermOption.c_oflag |= IGNPAR;
+
+        switch (BaudRate)
+        {
+
+        default:
+
+            cout << "You Can't Use BuadRate [ " << BaudRate << " ] " << endl;
+            cout << "BaudRate is Set to [ "
+                 << "115200 ] Instead" << endl;
+            TermOption.c_cflag |= B115200;
+            TermOption.c_ispeed = BaudRate;
+            TermOption.c_ospeed = BaudRate;
+            break;
+
+        case 57600:
+            TermOption.c_cflag |= B57600;
+            TermOption.c_ispeed = BaudRate;
+            TermOption.c_ospeed = BaudRate;
+            break;
+
+        case 38400:
+            TermOption.c_cflag |= B38400;
+            TermOption.c_ispeed = BaudRate;
+            TermOption.c_ospeed = BaudRate;
+            break;
+
+        case 19200:
+            TermOption.c_cflag |= B19200;
+            TermOption.c_ispeed = BaudRate;
+            TermOption.c_ospeed = BaudRate;
+            break;
+
+        case 9600:
+            TermOption.c_cflag |= B9600;
+            TermOption.c_ispeed = BaudRate;
+            TermOption.c_ospeed = BaudRate;
+            break;
+        }
+
+        // TermOption.c_iflag |=
         tcflush(UartFD, TCIOFLUSH);
         fflush(stdin);
         fflush(stdout);
