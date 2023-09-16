@@ -7,17 +7,24 @@
 #include <fstream>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
+// #include <asm/termbits.h>
+// #include <asm/termios.h>
+#include <termios.h>
 #include <string.h>
 #include <pthread.h>
+#include <sys/types.h>
+#include <sys/poll.h>
+
+#include <termios.h>
 
 // Library for Uart
-#include <asm/termbits.h>
 
 using namespace std;
 
 void *Rx_Msg_Thread(void *);
 void *Rx_Key_Thread(void *);
-void Error_Handle(); 
+void Error_Handle();
 
 class UART
 {
@@ -25,7 +32,7 @@ class UART
     // Field
 
 private:
-    struct termios2 UartTerm;
+    struct termios Term_Option;
     char File[1024];
     int BaudRate;
     int UartFD;
@@ -52,8 +59,8 @@ UART ::UART(char *File, int BaudRate)
 
     printf("Constructiong Uart Instance\n");
 
-    UartFD = open(File, O_RDWR); // Default Blocking
-    if (UartFD == -1)
+    UartFD = open(File, O_RDWR | O_NOCTTY | O_NDELAY | O_NONBLOCK); // Default Blocking //| O_NDELAY | O_NONBLOCK
+    if (UartFD < 0)
     {
         Error_Handle();
         exit(0);
@@ -62,23 +69,74 @@ UART ::UART(char *File, int BaudRate)
     {
 
         printf("Open Uart Device File : [ OK ]\n");
-        printf("UartFD : %d\n", UartFD);
+        printf("`-File Descriptor : %d\n", UartFD);
+        memset(&Term_Option, 0x0, sizeof(Term_Option));
 
-        if (ioctl(UartFD, TCGETS2, &UartTerm) != 0)
-            Error_Handle();
-        else
+        //  Term_Option.c_cflag |= CS8 | CLOCAL | CREAD;
+        /* Char Size : 8 , Ignore Moderm Signal , Read Char : OK */
+        /* Input Mode Flag */
+        // Term_Option.c_iflag |= IGNPAR; /* Ignore Parity Bits*/
+        /* Output Mode Flag */
+        // Term_Option.c_oflag |= 0x0;
+        /* Local Mode Flag */
+        // Term_Option.c_lflag |= 0x0;
+
+        //  Term_Option.c_cc[VTIME] = 0;
+        //   Term_Option.c_cc[VMIN] = 1;
+
+        struct termios Origin_Term;
+        tcgetattr(UartFD, &Origin_Term);
+
+        Term_Option = Origin_Term;
+
+        Term_Option.c_cflag |= CS8 | CLOCAL | CREAD & ~CSIZE;
+        Term_Option.c_iflag = 0x1 & ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON | IXOFF | IXANY);
+
+        Term_Option.c_lflag = 0x0;
+        Term_Option.c_oflag = 0x0;
+
+        Term_Option.c_cc[VTIME] = 0;
+        Term_Option.c_cc[VMIN] = 1;
+
+        switch (BaudRate)
         {
 
-            UartTerm.c_cflag &= ~CBAUD;
-            UartTerm.c_cflag |= BOTHER;
-            UartTerm.c_cflag |= CS8;
-            UartTerm.c_cflag |= CLOCAL;
-            UartTerm.c_cflag |= CREAD;
-            UartTerm.c_ospeed = BaudRate;
-            UartTerm.c_ispeed = BaudRate;
-            if (ioctl(UartFD, TCSETS2, &UartTerm) != 0)
-                Error_Handle();
+        case 115200:
+            Term_Option.c_cflag |= B115200;
+            printf("BuadRate is Set to B115200\n");
+            break;
+
+        case 57600:
+            Term_Option.c_cflag |= B57600;
+            printf("BuadRate is Set to B57600\n");
+            break;
+
+        case 38400:
+            Term_Option.c_cflag |= B38400;
+            printf("BuadRate is Set to B38400\n");
+            break;
+
+        case 19200:
+            Term_Option.c_cflag |= B19200;
+            printf("BuadRate is Set to B19200\n");
+            break;
+
+        case 9600:
+            Term_Option.c_cflag |= B9600;
+            printf("BuadRate is Set to B9600\n");
+            break;
+
+        default:
+            Term_Option.c_cflag |= B115200;
+            printf("You Enter Wrong BaudRate\n");
+            printf("BuadRate is Set to B115200\n");
+            break;
         }
+
+        tcflush(UartFD, TCIOFLUSH);
+        tcsetattr(UartFD, TCSANOW, &Term_Option);
+
+        //  mmap(NULL,getpagesize(), PROT_READ | PROT_WRITE , MAP_SHARED,UartFD,0);
     }
 }
 
@@ -108,8 +166,6 @@ char UART ::Receive()
 void UART ::Set_BaudRate(int BaudRate)
 {
 
-    UartTerm.c_ospeed = BaudRate;
-    UartTerm.c_ispeed = BaudRate;
     this->BaudRate = BaudRate;
 }
 int UART ::Get_BaudRate()
@@ -127,10 +183,11 @@ UART *UART ::Get_This()
 UART::~UART()
 {
 
-  printf("Destruct Uart Instance %x : [ OK ]\n");
-  if( close(UartFD) != 0 ) Error_Handle();
-  else printf("Close UartFD [ OK ]\n",UartFD); 
-    
+    printf("Destruct Uart Instance %x : [ OK ]\n");
+    if (close(UartFD) != 0)
+        Error_Handle();
+    else
+        printf("Close UartFD [ OK ]\n", UartFD);
 }
 
 int UART ::Get_UartFD()
@@ -147,7 +204,7 @@ int main(int argc, char *argv[])
 {
 
     int BaudRate;
-    
+
     char Device_File[1024];
 
     printf("Enter Uart Device File...\n");
@@ -165,7 +222,7 @@ int main(int argc, char *argv[])
 
     pUart = new UART(Device_File, BaudRate);
 
-    pUart->Transmit("Hello I'm UART ...!!!\n");
+    // pUart->Transmit("Hello I'm UART ...!!!\n");
 
     cout << "pUart : " << (int *)pUart << endl;
     cout << "pUart->Get_This() : " << (int *)pUart->Get_This() << endl;
@@ -179,16 +236,14 @@ int main(int argc, char *argv[])
     else
         printf("Create Rx_Key_Thread Routine : [ OK ]\n");
 
-
-
-
-
-
-    if (pthread_join(Rx_Msg_Tid, NULL) != 0) Error_Handle();
-    else printf("Join Rx_Msg_Thread Routine : [ OK ]\n");
-    if (pthread_join(Rx_Key_Tid, NULL) != 0) Error_Handle();
-    else printf("Join Rx_Key_Thread Routine : [ OK ]\n");
-
+    if (pthread_join(Rx_Msg_Tid, NULL) != 0)
+        Error_Handle();
+    else
+        printf("Join Rx_Msg_Thread Routine : [ OK ]\n");
+    if (pthread_join(Rx_Key_Tid, NULL) != 0)
+        Error_Handle();
+    else
+        printf("Join Rx_Key_Thread Routine : [ OK ]\n");
 
     printf("Exit This Program\n");
     delete pUart;
@@ -209,6 +264,7 @@ void *Rx_Key_Thread(void *argu)
     {
 
         c = getchar();
+
         Buffer[idx++] = c;
         if (c == '\b')
         {
@@ -218,17 +274,19 @@ void *Rx_Key_Thread(void *argu)
         else if (c == '\n')
         {
 
-            
             printf("Console : %s", Buffer);
-            write(UartFD, Buffer, strlen(Buffer));
+            tcflush(UartFD, TCIFLUSH);
+            write(UartFD, Buffer, sizeof(Buffer));
+
             if (strcmp(Buffer, "quit\n") == 0)
             {
 
                 printf("You Order Quit\n");
-                if (pthread_cancel(Rx_Msg_Tid) != 0)
-                    Error_Handle();
-                else
+                if (pthread_cancel(Rx_Msg_Tid) == 0)
                     printf("Cancel Rx_Msg_Thread Routine : [ OK ]\n");
+                else
+                    Error_Handle();
+
                 break;
             }
 
@@ -243,44 +301,64 @@ void *Rx_Msg_Thread(void *argu)
 {
 
     printf("Under Rx_Msg_Thread Routine\n");
-    int idx = 0;
+    int idx = -1;
     char Buffer[1024];
     char c;
     int UartFD = pUart->Get_UartFD();
     bzero(Buffer, 1024);
 
+    struct pollfd Poll_Event = {
+        .fd = UartFD,
+        .events = POLLIN | POLLERR,
+        .revents = 0
+
+    };
+
     while (1)
     {
 
-        int Status = read(UartFD, &c, 1); // Blocking
-        if ((Status != 0) && (Status != -1))
+        int Poll_State = poll(&Poll_Event, 1, 1000);
+
+        if (Poll_State > 0)
         {
 
-            Buffer[idx++] = c;
-            if (c == '\b')
+            if (Poll_Event.revents == POLLIN)
             {
-                putchar(' ');
-            }
-            else if (c == '\n')
-            {
-            
-                printf("Receive : %s", Buffer);
 
-                if (strcmp("quit\n", Buffer) == 0)
+                //   printf("Poll_Event.revents = 0x%x\n",Poll_Event.revents);
+                int Status = read(UartFD, &c, 1);
+                // putchar(c);
+
+                if ((Status != 0) && (Status != -1))
                 {
-                    printf("CounterPart Orders Quit\n");
-                    if (pthread_cancel(Rx_Key_Tid) != 0) Error_Handle();
-                    else printf("Cancel Key_Msg_Thread Routine : [ OK ]\n");
+                    idx++;
+                    Buffer[idx] = c;
 
-                    break;
+                    if (c == '\b')
+                    {
+                        printf("Back Space\n");
+                        Buffer[idx] = ' ';
+                    }
+                    else if (c == '\n')
+                    {
+
+                        printf("Receive : %s", Buffer);
+                        if (strcmp(Buffer, "quit\n") == 0)
+                        {
+
+                            printf("Quit Message is Ordered\n");
+                            printf("Quit The Program\n");
+                        }
+                        tcflush(UartFD, TCIFLUSH);
+                        bzero(Buffer, sizeof(Buffer));
+                        idx = -1;
+                    }
                 }
-                bzero(Buffer, 1024);
-                idx = 0;
             }
+            else if (Poll_Event.revents & POLLERR)
+                Error_Handle();
         }
-        else  Error_Handle();
     }
-          
 
     printf("End of Rx_Msg_Thread Routine\n");
 }
@@ -290,6 +368,6 @@ void Error_Handle()
     char Buffer[1024];
     bzero(Buffer, 1024);
     sprintf(Buffer, "Error(%d) : %s", errno, strerror(errno));
-    printf("%s\n",Buffer); 
-   
+    printf("%s\n", Buffer);
+    exit(1);
 }
